@@ -27,6 +27,9 @@ func (c newMethodCommandCodeGenerator) goName() string {
 }
 
 func (c newMethodCommandCodeGenerator) generateCode(g *protogen.GeneratedFile) error {
+	isStreamingClient := c.method.Desc.IsStreamingClient()
+	isStreamingServer := c.method.Desc.IsStreamingServer()
+
 	cobraCommand := g.QualifiedGoIdent(protogen.GoIdent{
 		GoImportPath: "github.com/spf13/cobra",
 		GoName:       "Command",
@@ -87,25 +90,66 @@ func (c newMethodCommandCodeGenerator) generateCode(g *protogen.GeneratedFile) e
 		GoName:       "LogRequest",
 	}
 	g.P(logRequest, "(cmd.Context(), &request)")
-	g.P("response, err := client.", c.method.GoName, "(cmd.Context(), &request)")
-	g.P("if err != nil {")
-	logError := protogen.GoIdent{
-		GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
-		GoName:       "LogError",
+	if !isStreamingClient {
+		if !isStreamingServer {
+			g.P("response, err := client.", c.method.GoName, "(cmd.Context(), &request)")
+			g.P("if err != nil {")
+			logError := protogen.GoIdent{
+				GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
+				GoName:       "LogError",
+			}
+			osExit := protogen.GoIdent{
+				GoImportPath: "os",
+				GoName:       "Exit",
+			}
+			g.P(logError, "(cmd.Context(), err)")
+			g.P(osExit, "(1)")
+			g.P("}")
+			logResponse := protogen.GoIdent{
+				GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
+				GoName:       "LogResponse",
+			}
+			g.P(logResponse, "(cmd.Context(), response)")
+			g.P("return nil")
+
+		} else {
+			g.P("streamingClient, err := client.", c.method.GoName, "(cmd.Context(), &request)")
+			g.P("if err != nil {")
+			logError := protogen.GoIdent{
+				GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
+				GoName:       "LogError",
+			}
+			osExit := protogen.GoIdent{
+				GoImportPath: "os",
+				GoName:       "Exit",
+			}
+			g.P(logError, "(cmd.Context(), err)")
+			g.P(osExit, "(1)")
+			g.P("}")
+			g.P("for response, err := streamingClient.Recv();; {")
+			g.P("if err != nil {")
+			eof := protogen.GoIdent{
+				GoImportPath: "io",
+				GoName:       "EOF",
+			}
+			g.P("if err == ", eof, " {")
+			g.P("return nil")
+			g.P("}")
+			g.P(logError, "(cmd.Context(), err)")
+			g.P(osExit, "(1)")
+			g.P("}")
+			logResponse := protogen.GoIdent{
+				GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
+				GoName:       "LogResponse",
+			}
+			g.P(logResponse, "(cmd.Context(), response)")
+			g.P("}")
+		}
+	} else {
+		// TODO not supported yet
+		g.P("// Client streaming is not supported yet")
+		g.P("return nil")
 	}
-	osExit := protogen.GoIdent{
-		GoImportPath: "os",
-		GoName:       "Exit",
-	}
-	g.P(logError, "(cmd.Context(), err)")
-	g.P(osExit, "(1)")
-	g.P("}")
-	logResponse := protogen.GoIdent{
-		GoImportPath: "go.einride.tech/protoc-gen-go-cli/cli",
-		GoName:       "LogResponse",
-	}
-	g.P(logResponse, "(cmd.Context(), response)")
-	g.P("return nil")
 	g.P("}")
 	g.P("return cmd")
 	g.P("}")
